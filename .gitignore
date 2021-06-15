@@ -50,6 +50,3 @@ simWorkspace/
 tmp/
 /archive.tar.gz
 *.out32
-
-.bloop
-.metals
