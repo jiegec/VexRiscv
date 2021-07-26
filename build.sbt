@@ -1,4 +1,4 @@
-val spinalVersion = "1.5.1"
+val spinalVersion = "1.6.0"
 
 lazy val root = (project in file(".")).
   settings(
@@ -11,7 +11,7 @@ lazy val root = (project in file(".")).
       "com.github.spinalhdl" %% "spinalhdl-core" % spinalVersion,
       "com.github.spinalhdl" %% "spinalhdl-lib" % spinalVersion,
       compilerPlugin("com.github.spinalhdl" %% "spinalhdl-idsl-plugin" % spinalVersion),
-      "org.scalatest" %% "scalatest" % "3.0.1",
+      "org.scalatest" %% "scalatest" % "3.2.5",
       "org.yaml" % "snakeyaml" % "1.8"
     ),
     name := "VexRiscv"
