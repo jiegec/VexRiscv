@@ -174,9 +174,9 @@ class Briey(config: BrieyConfig) extends Component{
 
   val io = new Bundle{
     //Clocks / reset
-    val asyncReset = in Bool
-    val axiClk     = in Bool
-    val vgaClk     = in Bool
+    val asyncReset = in Bool()
+    val axiClk     = in Bool()
+    val vgaClk     = in Bool()
 
     //Main components IO
     val jtag       = slave(Jtag())
@@ -188,7 +188,7 @@ class Briey(config: BrieyConfig) extends Component{
     val uart          = master(Uart())
     val vga           = master(Vga(vgaRgbConfig))
     val timerExternal = in(PinsecTimerCtrlExternal())
-    val coreInterrupt = in Bool
+    val coreInterrupt = in Bool()
   }
 
   val resetCtrlClockDomain = ClockDomain(
@@ -200,7 +200,7 @@ class Briey(config: BrieyConfig) extends Component{
 
   val resetCtrl = new ClockingArea(resetCtrlClockDomain) {
     val systemResetUnbuffered  = False
-//    val coreResetUnbuffered = False
+    //    val coreResetUnbuffered = False
 
     //Implement an counter to keep the reset axiResetOrder high 64 cycles
     // Also this counter will automaticly do a reset when the system boot.
