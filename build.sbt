@@ -7,17 +7,16 @@ lazy val root = (project in file(".")).
       scalaVersion := "2.12.13",
       version      := "2.0.0"
     )),
-    scalacOptions +=  s"-Xplugin:${new File(baseDirectory.value + s"/../SpinalHDL/idslplugin/target/scala-2.12/spinalhdl-idsl-plugin_2.12-$spinalVersion.jar")}",
-    scalacOptions += s"-Xplugin-require:idsl-plugin",
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % "3.2.5",
-      "org.yaml" % "snakeyaml" % "1.8"
+      "org.yaml" % "snakeyaml" % "1.8",
+      "com.github.spinalhdl" %% "spinalhdl-core" % spinalVersion,
+      "com.github.spinalhdl" %% "spinalhdl-lib" % spinalVersion,
+      compilerPlugin(
+        "com.github.spinalhdl" %% "spinalhdl-idsl-plugin" % spinalVersion
+      )
     ),
     name := "VexRiscv"
-  ).dependsOn(spinalHdlIdslPlugin, spinalHdlSim,spinalHdlCore,spinalHdlLib)
-lazy val spinalHdlIdslPlugin = ProjectRef(file("../SpinalHDL"), "idslplugin")
-lazy val spinalHdlSim = ProjectRef(file("../SpinalHDL"), "sim")
-lazy val spinalHdlCore = ProjectRef(file("../SpinalHDL"), "core")
-lazy val spinalHdlLib = ProjectRef(file("../SpinalHDL"), "lib")
+  )
 
 fork := true
