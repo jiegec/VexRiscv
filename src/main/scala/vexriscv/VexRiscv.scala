@@ -53,6 +53,8 @@ case class VexRiscvConfig(){
     case None => false
   }
 
+  def FLEN = if(withRvd) 64 else if(withRvf) 32 else 0
+
   //Default Stageables
   object IS_RVC extends Stageable(Bool)
   object BYPASSABLE_EXECUTE_STAGE   extends Stageable(Bool)
@@ -95,6 +97,7 @@ case class VexRiscvConfig(){
   object FORMAL_MEM_RDATA  extends Stageable(Bits(32 bits))
   object FORMAL_MEM_WDATA  extends Stageable(Bits(32 bits))
   object FORMAL_INSTRUCTION extends Stageable(Bits(32 bits))
+  object FORMAL_MODE       extends Stageable(Bits(2 bits))
 
 
   object Src1CtrlEnum extends SpinalEnum(binarySequential){
@@ -136,10 +139,10 @@ class VexRiscv(val config : VexRiscvConfig) extends Component with Pipeline{
   plugins ++= config.plugins
 
   //regression usage
-  val lastStageInstruction = CombInit(stages.last.input(config.INSTRUCTION)).keep().addAttribute (Verilator.public)
-  val lastStagePc = CombInit(stages.last.input(config.PC)).keep().addAttribute(Verilator.public)
-  val lastStageIsValid = CombInit(stages.last.arbitration.isValid).keep().addAttribute(Verilator.public)
-  val lastStageIsFiring = CombInit(stages.last.arbitration.isFiring).keep().addAttribute(Verilator.public)
+  val lastStageInstruction = CombInit(stages.last.input(config.INSTRUCTION)).dontSimplifyIt().addAttribute (Verilator.public)
+  val lastStagePc = CombInit(stages.last.input(config.PC)).dontSimplifyIt().addAttribute(Verilator.public)
+  val lastStageIsValid = CombInit(stages.last.arbitration.isValid).dontSimplifyIt().addAttribute(Verilator.public)
+  val lastStageIsFiring = CombInit(stages.last.arbitration.isFiring).dontSimplifyIt().addAttribute(Verilator.public)
 
   //Verilator perf
   decode.arbitration.removeIt.noBackendCombMerge

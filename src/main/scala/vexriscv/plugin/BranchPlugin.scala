@@ -46,6 +46,7 @@ case class FetchPredictionBus(stage : Stage) extends Bundle {
 trait PredictionInterface{
   def askFetchPrediction() : FetchPredictionBus
   def askDecodePrediction() : DecodePredictionBus
+  def inDebugNoFetch() : Unit
 }
 
 
@@ -68,6 +69,7 @@ class BranchPlugin(earlyBranch : Boolean,
   var jumpInterface : Flow[UInt] = null
   var predictionExceptionPort : Flow[ExceptionCause] = null
   var branchExceptionPort : Flow[ExceptionCause] = null
+  var inDebugNoFetchFlag : Bool = null
 
 
   var decodePrediction : DecodePredictionBus = null
@@ -83,6 +85,9 @@ class BranchPlugin(earlyBranch : Boolean,
     decodePrediction = DecodePredictionBus(branchStage)
     decodePrediction
   }
+
+
+  override def inDebugNoFetch(): Unit = inDebugNoFetchFlag := True
 
   def hasHazardOnBranch = if(earlyBranch) pipeline.service(classOf[HazardService]).hazardOnExecuteRS else False
 
@@ -147,6 +152,7 @@ class BranchPlugin(earlyBranch : Boolean,
       val exceptionService = pipeline.service(classOf[ExceptionService])
       branchExceptionPort = exceptionService.newExceptionPort(branchStage)
     }
+    inDebugNoFetchFlag = False.setCompositeName(this, "inDebugNoFetchFlag")
   }
 
   override def build(pipeline: VexRiscv): Unit = {
@@ -184,7 +190,8 @@ class BranchPlugin(earlyBranch : Boolean,
         BranchCtrlEnum.B    -> input(INSTRUCTION)(14 downto 12).mux(
           B"000"  -> eq  ,
           B"001"  -> !eq  ,
-          M"1-1"  -> !less,
+          B"101"  -> !less,
+          B"111"  -> !less,
           default -> less
         )
       )
@@ -245,7 +252,8 @@ class BranchPlugin(earlyBranch : Boolean,
         BranchCtrlEnum.B    -> input(INSTRUCTION)(14 downto 12).mux(
           B"000"  -> eq  ,
           B"001"  -> !eq  ,
-          M"1-1"  -> !less,
+          B"101"  -> !less,
+          B"111"  -> !less,
           default -> less
         )
       )
@@ -327,7 +335,8 @@ class BranchPlugin(earlyBranch : Boolean,
         BranchCtrlEnum.B    -> input(INSTRUCTION)(14 downto 12).mux(
           B"000"  -> eq  ,
           B"001"  -> !eq  ,
-          M"1-1"  -> !less,
+          B"101"  -> !less,
+          B"111"  -> !less,
           default -> less
         )
       )
@@ -353,6 +362,7 @@ class BranchPlugin(earlyBranch : Boolean,
       import branchStage._
 
       val predictionMissmatch = fetchPrediction.cmd.hadBranch =/= input(BRANCH_DO) || (input(BRANCH_DO) && input(TARGET_MISSMATCH))
+      when(inDebugNoFetchFlag) { predictionMissmatch := input(BRANCH_DO)}
       fetchPrediction.rsp.wasRight := ! predictionMissmatch
       fetchPrediction.rsp.finalPc := input(BRANCH_CALC)
       fetchPrediction.rsp.sourceLastWord := {

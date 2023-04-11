@@ -340,13 +340,13 @@ class DBusSimplePlugin(catchAddressMisaligned : Boolean = false,
 
     decoderService.addDefault(MEMORY_ENABLE, False)
     decoderService.add(
-      (if(onlyLoadWords) List(LW) else List(LB, LH, LW, LBU, LHU, LWU)).map(_ -> loadActions) ++
+      (if(onlyLoadWords) List(LW) else List(LB, LH, LW, LBU, LHU)).map(_ -> loadActions) ++
       List(SB, SH, SW).map(_ -> storeActions)
     )
 
 
     if(withLrSc){
-      List(LB, LH, LW, LBU, LHU, LWU, SB, SH, SW).foreach(e =>
+      List(LB, LH, LW, LBU, LHU, SB, SH, SW).foreach(e =>
         decoderService.add(e, Seq(MEMORY_ATOMIC -> False))
       )
       decoderService.add(
@@ -462,8 +462,9 @@ class DBusSimplePlugin(catchAddressMisaligned : Boolean = false,
       val atomic = withLrSc generate new Area{
         val reserved = RegInit(False)
         insert(ATOMIC_HIT) := reserved
-        when(arbitration.isFiring &&  input(MEMORY_ENABLE) && input(MEMORY_ATOMIC) && (if(mmuBus != null) !input(MMU_FAULT) else True) && !skipCmd){
-          reserved := !input(MEMORY_STORE)
+        when(arbitration.isFiring &&  input(MEMORY_ENABLE) && (if(mmuBus != null) !input(MMU_FAULT) else True) && !skipCmd){
+          reserved setWhen(input(MEMORY_ATOMIC))
+          reserved clearWhen(input(MEMORY_STORE))
         }
         when(input(MEMORY_STORE) && input(MEMORY_ATOMIC) && !input(ATOMIC_HIT)){
           skipCmd := True
@@ -517,9 +518,6 @@ class DBusSimplePlugin(catchAddressMisaligned : Boolean = false,
         }
 
       }
-
-
-      if(rspStage != execute) assert(!(dBus.rsp.ready && input(MEMORY_ENABLE) && arbitration.isValid && arbitration.isStuck),"DBusSimplePlugin doesn't allow memory stage stall when read happend")
     }
 
     //Reformat read responses, REGFILE_WRITE_DATA overriding
@@ -566,8 +564,8 @@ class DBusSimplePlugin(catchAddressMisaligned : Boolean = false,
         }
       }
 
-      if(!earlyInjection && !emitCmdInMemoryStage && config.withWriteBackStage)
-        assert(!(arbitration.isValid && input(MEMORY_ENABLE) && !input(MEMORY_STORE) && arbitration.isStuck),"DBusSimplePlugin doesn't allow writeback stage stall when read happend")
+//      if(!earlyInjection && !emitCmdInMemoryStage && config.withWriteBackStage)
+//        assert(!(arbitration.isValid && input(MEMORY_ENABLE) && !input(MEMORY_STORE) && arbitration.isStuck),"DBusSimplePlugin doesn't allow writeback stage stall when read happend")
 
       //formal
       insert(FORMAL_MEM_RDATA) := input(MEMORY_READ_DATA)

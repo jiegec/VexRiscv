@@ -1,7 +1,7 @@
 package vexriscv.plugin
 
 import spinal.lib.com.jtag.{Jtag, JtagTapInstructionCtrl}
-import spinal.lib.system.debugger.{JtagBridge, JtagBridgeNoTap, SystemDebugger, SystemDebuggerConfig, SystemDebuggerMemBus}
+import spinal.lib.system.debugger.{JtagBridge, JtagBridgeNoTap, VJtagBridge, SystemDebugger, SystemDebuggerConfig, SystemDebuggerMemBus}
 import vexriscv.plugin.IntAluPlugin.{ALU_CTRL, AluCtrlEnum}
 import vexriscv._
 import vexriscv.ip._
@@ -137,13 +137,13 @@ case class DebugExtensionBus() extends Bundle with IMasterSlave{
     jtagBridge.io.jtag
   }
 
-  def fromJtagInstructionCtrl(jtagClockDomain : ClockDomain): JtagTapInstructionCtrl ={
+  def fromJtagInstructionCtrl(jtagClockDomain : ClockDomain, jtagHeaderIgnoreWidth : Int): JtagTapInstructionCtrl ={
     val jtagConfig = SystemDebuggerConfig(
       memAddressWidth = 32,
       memDataWidth    = 32,
       remoteCmdWidth  = 1
     )
-    val jtagBridge = new JtagBridgeNoTap(jtagConfig, jtagClockDomain)
+    val jtagBridge = new JtagBridgeNoTap(jtagConfig, jtagClockDomain, jtagHeaderIgnoreWidth)
     val debugger = new SystemDebugger(jtagConfig)
     debugger.io.remote <> jtagBridge.io.remote
     debugger.io.mem <> this.from(jtagConfig)
@@ -151,14 +151,28 @@ case class DebugExtensionBus() extends Bundle with IMasterSlave{
     jtagBridge.io.ctrl
   }
 
-  def fromBscane2(usedId : Int): Unit ={
+  def fromBscane2(usedId : Int, jtagHeaderIgnoreWidth : Int): Unit ={
     val jtagConfig = SystemDebuggerConfig()
 
     val bscane2 = BSCANE2(usedId)
     val jtagClockDomain = ClockDomain(bscane2.TCK)
 
-    val jtagBridge = new JtagBridgeNoTap(jtagConfig, jtagClockDomain)
+    val jtagBridge = new JtagBridgeNoTap(jtagConfig, jtagClockDomain, jtagHeaderIgnoreWidth)
     jtagBridge.io.ctrl << bscane2.toJtagTapInstructionCtrl()
+
+    val debugger = new SystemDebugger(jtagConfig)
+    debugger.io.remote <> jtagBridge.io.remote
+    debugger.io.mem <> this.from(debugger.io.mem.c)
+  }
+
+  def fromVJtag() : Unit = {
+    val jtagConfig = SystemDebuggerConfig(
+      memAddressWidth = 32,
+      memDataWidth    = 32,
+      remoteCmdWidth  = 1
+    )
+
+    val jtagBridge = new VJtagBridge(jtagConfig)
 
     val debugger = new SystemDebugger(jtagConfig)
     debugger.io.remote <> jtagBridge.io.remote
@@ -179,7 +193,6 @@ case class DebugExtensionIo() extends Bundle with IMasterSlave{
 class DebugPlugin(var debugClockDomain : ClockDomain, hardwareBreakpointCount : Int = 0, BreakpointReadback : Boolean = false) extends Plugin[VexRiscv] {
 
   var io : DebugExtensionIo = null
-  val injectionAsks = ArrayBuffer[(Stage, Bool)]()
   var injectionPort : Stream[Bits] = null
 
 
@@ -196,7 +209,7 @@ class DebugPlugin(var debugClockDomain : ClockDomain, hardwareBreakpointCount : 
     decoderService.addDefault(IS_EBREAK, False)
     decoderService.add(EBREAK,List(IS_EBREAK -> True))
 
-    injectionPort = pipeline.service(classOf[IBusFetcher]).getInjectionPort()
+    injectionPort = pipeline.service(classOf[IBusFetcher]).getInjectionPort().setCompositeName(this, "injectionPort")
 
     if(pipeline.serviceExist(classOf[ReportService])){
       val report = pipeline.service(classOf[ReportService])
@@ -319,6 +332,10 @@ class DebugPlugin(var debugClockDomain : ClockDomain, hardwareBreakpointCount : 
       if(pipeline.config.withRvc){
         val cleanStep = RegNext(stepIt && decode.arbitration.isFiring) init(False)
         execute.arbitration.flushNext setWhen(cleanStep)
+        when(cleanStep){
+          execute.arbitration.flushNext := True
+          iBusFetcher.forceNoDecode()
+        }
       }
 
       io.resetOut := RegNext(resetIt)
@@ -336,6 +353,10 @@ class DebugPlugin(var debugClockDomain : ClockDomain, hardwareBreakpointCount : 
         }
         pipeline.plugins.foreach{
           case p : PrivilegeService => p.forceMachine()
+          case _ =>
+        }
+        pipeline.plugins.foreach{
+          case p : PredictionInterface => p.inDebugNoFetch()
           case _ =>
         }
         if(pipeline.things.contains(DEBUG_BYPASS_CACHE)) pipeline(DEBUG_BYPASS_CACHE) := True

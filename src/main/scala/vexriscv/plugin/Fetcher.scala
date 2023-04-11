@@ -11,7 +11,7 @@ import scala.collection.mutable.ArrayBuffer
 //TODO val killLastStage = jump.pcLoad.valid || decode.arbitration.isRemoved
 // DBUSSimple check memory halt execute optimization
 
-abstract class IBusFetcherImpl(val resetVector : BigInt,
+abstract class IBusFetcherImpl(var resetVector : BigInt,
                                val keepPcPlus4 : Boolean,
                                val decodePcGen : Boolean,
                                val compressedGen : Boolean,
@@ -33,6 +33,7 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
 //  assert(!(cmdToRspStageCount == 1 && !injectorStage))
   assert(!(compressedGen && !decodePcGen))
   var fetcherHalt : Bool = null
+  var forceNoDecodeCond : Bool = null
   var pcValids : Vec[Bool] = null
   def pcValid(stage : Stage) = pcValids(pipeline.indexOf(stage))
   var incomingInstruction : Bool = null
@@ -41,15 +42,15 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
 
   override def withRvc(): Boolean = compressedGen
 
-  var injectionPort : Stream[Bits] = null
+  val injectionPorts = ArrayBuffer[Stream[Bits]]()
   override def getInjectionPort() = {
-    injectionPort = Stream(Bits(32 bits))
-    injectionPort
+    injectionPorts.addRet(Stream(Bits(32 bits)))
   }
   def pcRegReusedForSecondStage = allowPcRegReusedForSecondStage && prediction != DYNAMIC_TARGET //TODO might not be required for  DYNAMIC_TARGET
   var predictionJumpInterface : Flow[UInt] = null
 
   override def haltIt(): Unit = fetcherHalt := True
+  override def forceNoDecode(): Unit = forceNoDecodeCond := True
   case class JumpInfo(interface :  Flow[UInt], stage: Stage, priority : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
   override def createJumpInterface(stage: Stage, priority : Int = 0): Flow[UInt] = {
@@ -63,6 +64,7 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
 //  var decodeExceptionPort : Flow[ExceptionCause] = null
   override def setup(pipeline: VexRiscv): Unit = {
     fetcherHalt = False
+    forceNoDecodeCond = False
     incomingInstruction = False
     if(resetVector == null) externalResetVector = in(UInt(32 bits).setName("externalResetVector"))
 
@@ -183,7 +185,7 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
 
       val predictionPcLoad = ifGen(prediction == DYNAMIC_TARGET) (Flow(UInt(32 bits)))
       if(prediction == DYNAMIC_TARGET) {
-        when(predictionPcLoad.valid) {
+        when(predictionPcLoad.valid && !forceNoDecodeCond) {
           pcReg := predictionPcLoad.payload
         }
       }
@@ -351,9 +353,20 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
       decode.insert(INSTRUCTION) := decodeInput.rsp.inst
       if (compressedGen) decode.insert(IS_RVC) := decodeInput.isRvc
 
-      if (injectionPort != null) {
-        Component.current.addPrePopTask(() => {
+      if (injectionPorts.nonEmpty) {
+        Component.current.addPrePopTask(() => new Composite(this, "port"){
           val state = RegInit(U"000")
+          val injectionPort = injectionPorts.size match {
+            case 1 => injectionPorts.head
+            case _ => {
+              val p = Stream(Bits(32 bits))
+              //assume only one port is used at the time
+              p.valid := injectionPorts.map(_.valid).orR
+              p.payload := OHMux(injectionPorts.map(_.valid), injectionPorts.map(_.payload))
+              injectionPorts.foreach(_.ready := p.ready)
+              p
+            }
+          }
 
           injectionPort.ready := False
           if(decodePcGen){
@@ -387,7 +400,7 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
 
           //Check if the decode instruction is driven by a register
           val instructionDriver = try {
-            decode.input(INSTRUCTION).getDrivingReg
+            decode.input(INSTRUCTION).getDrivingReg()
           } catch {
             case _: Throwable => null
           }
@@ -408,6 +421,11 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
         })
       }
 
+      Component.current.addPrePopTask(() => {
+        decode.arbitration.isValid clearWhen(forceNoDecodeCond)
+      })
+
+      val privilegeService = pipeline.serviceElse(classOf[PrivilegeService], PrivilegeServiceDefault())
 
       //Formal verification signals generation, miss prediction stuff ?
       val formal = new Area {
@@ -431,6 +449,11 @@ abstract class IBusFetcherImpl(val resetVector : BigInt,
             info.stage.output(FORMAL_PC_NEXT) := info.interface.payload
           }
         })
+
+        // Forward the current CPU "mode" (privilege level) from the fetch
+	// stage, which is where it can begin to affect the current
+	// execution (e.g., through PMP checks).
+        decode.insert(FORMAL_MODE) := privilegeService.encodeBits()
       }
     }
 

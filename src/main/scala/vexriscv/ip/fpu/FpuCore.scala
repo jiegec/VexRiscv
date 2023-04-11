@@ -530,7 +530,7 @@ case class FpuCore( portCount : Int, p : FpuParameter) extends Component{
           busy := True
           when(boot){
             when(input.i2f && !patched && input.value(31) && input.arg(0)){
-              input.value.getDrivingReg(0, 32 bits) := B(input.value.asUInt.twoComplement(True).resize(32 bits))
+              input.value.getDrivingReg()(0, 32 bits) := B(input.value.asUInt.twoComplement(True).resize(32 bits))
               patched := True
             } otherwise {
               shift.by := OHToUInt(OHMasking.first((ohInput).reversed))
@@ -1318,7 +1318,7 @@ case class FpuCore( portCount : Int, p : FpuParameter) extends Component{
       is(_15_XYY2){
         when(mulBuffer.valid) {
           state := Y_15_XYY2
-          mulBuffer.payload.getDrivingReg := (U"11" << mulWidth-2) - (mulBuffer.payload)
+          mulBuffer.payload.getDrivingReg() := (U"11" << mulWidth-2) - (mulBuffer.payload)
         }
       }
       is(Y_15_XYY2){
@@ -1546,7 +1546,7 @@ case class FpuCore( portCount : Int, p : FpuParameter) extends Component{
     val manAggregate = input.value.mantissa @@ input.scrap
     val expBase = muxDouble[UInt](input.format)(exponentF64Subnormal + 1)(exponentF32Subnormal + 1)
     val expDif = expBase -^ input.value.exponent
-    val expSubnormal = !expDif.msb
+    val expSubnormal = !input.value.special && !expDif.msb
     var discardCount = (expSubnormal ? expDif.resize(log2Up(p.internalMantissaSize) bits) | U(0))
     if (p.withDouble) when(input.format === FpuFormat.FLOAT) {
       discardCount \= discardCount + 29
@@ -1577,10 +1577,11 @@ case class FpuCore( portCount : Int, p : FpuParameter) extends Component{
     val adderMantissa = input.value.mantissa(mantissaRange) & (mantissaIncrement ? ~(exactMask.trim(1) >> 1) | input.value.mantissa(mantissaRange).maxValue)
     val adderRightOp = (mantissaIncrement ? (exactMask >> 1)| U(0)).resize(p.internalMantissaSize bits)
     val adder = KeepAttribute(KeepAttribute(input.value.exponent @@ adderMantissa) + KeepAttribute(adderRightOp) + KeepAttribute(U(mantissaIncrement)))
+    val masked = adder & ~((exactMask >> 1).resize(p.internalMantissaSize).resize(widthOf(adder)))
     math.special := input.value.special
     math.sign := input.value.sign
-    math.exponent := adder(p.internalMantissaSize, p.internalExponentSize bits)
-    math.mantissa := adder(0, p.internalMantissaSize bits)
+    math.exponent := masked(p.internalMantissaSize, p.internalExponentSize bits)
+    math.mantissa := masked(0, p.internalMantissaSize bits)
 
     val patched = CombInit(math)
     val nx,of,uf = False
@@ -1688,7 +1689,12 @@ case class FpuCore( portCount : Int, p : FpuParameter) extends Component{
     port.valid := input.valid && input.write
     port.address := input.source @@ input.rd
     port.data.value := input.value
-    if(p.withDouble) port.data.boxed := input.format === FpuFormat.FLOAT
+    if(p.withDouble) {
+      port.data.boxed := input.format === FpuFormat.FLOAT
+      when(port.data.boxed){
+        port.data.value.mantissa(p.internalMantissaSize-23-1 downto 0) := 0
+      }
+    }
 
     val randomSim = p.sim generate (in UInt(p.internalMantissaSize bits))
     if(p.sim) when(port.data.value.isZero || port.data.value.isInfinity){

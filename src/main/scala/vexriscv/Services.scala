@@ -17,6 +17,7 @@ trait IBusFetcher{
   def pcValid(stage : Stage) : Bool
   def getInjectionPort() : Stream[Bits]
   def withRvc() : Boolean
+  def forceNoDecode() : Unit
 }
 
 
@@ -24,6 +25,7 @@ trait DecoderService{
   def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
   def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
   def addDefault(key : Stageable[_ <: BaseType], value : Any)
+  def forceIllegal() : Unit
 }
 
 case class ExceptionCause(codeWidth : Int) extends Bundle{
@@ -48,6 +50,20 @@ trait PrivilegeService{
   def isSupervisor() : Bool
   def isMachine() : Bool
   def forceMachine() : Unit
+
+  def encodeBits() : Bits = {
+    val encoded = Bits(2 bits)
+
+    when(this.isUser()) {
+      encoded := "00"
+    }.elsewhen(this.isSupervisor()) {
+      encoded := "01"
+    }.otherwise {
+      encoded := "11"
+    }
+
+    encoded
+  }
 }
 
 case class PrivilegeServiceDefault() extends PrivilegeService{

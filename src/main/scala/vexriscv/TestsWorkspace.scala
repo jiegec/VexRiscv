@@ -24,6 +24,7 @@ import spinal.core._
 import spinal.lib._
 import vexriscv.ip._
 import spinal.lib.bus.avalon.AvalonMM
+import spinal.lib.cpu.riscv.debug.DebugTransportModuleParameter
 import spinal.lib.eda.altera.{InterruptReceiverTag, ResetEmitterTag}
 import vexriscv.demo.smp.VexRiscvSmpClusterGen
 import vexriscv.ip.fpu.FpuParameter
@@ -127,6 +128,7 @@ object TestsWorkspace {
 
       // export IMAGES=/media/data/open/SaxonSoc/artyA7SmpUpdate/buildroot-regression/buildroot-build/images
       // make clean all IBUS=CACHED IBUS_DATA_WIDTH=64 COMPRESSED=no DBUS=CACHED DBUS_LOAD_DATA_WIDTH=64 DBUS_STORE_DATA_WIDTH=64 LRSC=yes AMO=yes SUPERVISOR=yes DBUS_EXCLUSIVE=yes DBUS_INVALIDATE=yes MUL=yes DIV=yes RVF=yes RVD=yes DEBUG_PLUGIN=no LINUX_SOC_SMP=yes EMULATOR=$IMAGES/fw_jump.bin VMLINUX=$IMAGES/Image DTB=$IMAGES/linux.dtb RAMDISK=$IMAGES/rootfs.cpio  TRACE=yes REDO=1 DEBUG=ye WITH_USER_IO=no  FLOW_INFO=no TRACE_START=565000000000ll SEED=45
+      // make clean all IBUS=CACHED IBUS_DATA_WIDTH=64 COMPRESSED=no DBUS=CACHED DBUS_LOAD_DATA_WIDTH=64 DBUS_STORE_DATA_WIDTH=64 LRSC=yes AMO=yes SUPERVISOR=yes DBUS_EXCLUSIVE=yes DBUS_INVALIDATE=yes MUL=yes DIV=yes RVF=yes RVD=yes DEBUG_PLUGIN=no    RUN_HEX=/media/data/open/VexRiscv/src/test/cpp/raw/play/build/play.hex TRACE=yes
       val config = VexRiscvSmpClusterGen.vexRiscvConfig(
         hartId = 0,
         ioRange = _ (31 downto 28) === 0xF,
@@ -141,13 +143,28 @@ object TestsWorkspace {
         withFloat = true,
         withDouble = true,
         externalFpu = false,
-        simHalt = true
+        simHalt = true,
+        privilegedDebug = false
       )
 
+//      config.plugins += new EmbeddedRiscvJtag(
+//        p = DebugTransportModuleParameter(
+//          addressWidth = 7,
+//          version      = 1,
+//          idle         = 7
+//        ),
+//        debugCd = ClockDomain.current.copy(reset = Bool().setName("debugReset")),
+//        withTunneling = false,
+//        withTap = true
+//      )
+
+//      l.foreach{
+//        case p : EmbeddedRiscvJtag => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
+//        case _ =>
+//      }
 
       println("Args :")
       println(config.getRegressionArgs().mkString(" "))
-
 
       val toplevel = new VexRiscv(config)
 //      val toplevel = new VexRiscv(configLight)

@@ -71,12 +71,17 @@ class DecoderSimplePlugin(catchIllegalInstruction : Boolean = false,
     }
   }
 
+  def forceIllegal() : Unit = if(catchIllegalInstruction) pipeline.decode.input(pipeline.config.LEGAL_INSTRUCTION) := False
+
   val defaults = mutable.LinkedHashMap[Stageable[_ <: BaseType], BaseType]()
   val encodings = mutable.LinkedHashMap[MaskedLiteral,ArrayBuffer[(Stageable[_ <: BaseType], BaseType)]]()
   var decodeExceptionPort : Flow[ExceptionCause] = null
 
 
   override def setup(pipeline: VexRiscv): Unit = {
+    if(!catchIllegalInstruction) {
+      SpinalWarning("This VexRiscv configuration is set without illegal instruction catch support. Some software may rely on it (ex: Rust)")
+    }
     if(catchIllegalInstruction) {
       val exceptionService = pipeline.plugins.filter(_.isInstanceOf[ExceptionService]).head.asInstanceOf[ExceptionService]
       decodeExceptionPort = exceptionService.newExceptionPort(pipeline.decode).setName("decodeExceptionPort")

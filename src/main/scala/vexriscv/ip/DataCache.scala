@@ -40,6 +40,7 @@ case class DataCacheConfig(cacheSize : Int,
   assert(isPow2(pendingMax))
   assert(rfDataWidth <= memDataWidth)
 
+  def lineCount = cacheSize/bytePerLine/wayCount
   def sizeMax = log2Up(bytePerLine)
   def sizeWidth = log2Up(sizeMax + 1)
   val aggregationWidth = if(withWriteAggregation) log2Up(memDataBytes+1) else 0
@@ -175,6 +176,7 @@ case class FenceFlags() extends Bundle {
 case class DataCacheCpuWriteBack(p : DataCacheConfig) extends Bundle with IMasterSlave{
   val isValid = Bool()
   val isStuck = Bool()
+  val isFiring = Bool()
   val isUser = Bool()
   val haltIt = Bool()
   val isWrite = Bool()
@@ -187,9 +189,14 @@ case class DataCacheCpuWriteBack(p : DataCacheConfig) extends Bundle with IMaste
   val exclusiveOk = Bool()
 
   override def asMaster(): Unit = {
-    out(isValid,isStuck,isUser, address, fence, storeData)
+    out(isValid,isStuck,isUser, address, fence, storeData, isFiring)
     in(haltIt, data, mmuException, unalignedAccess, accessError, isWrite, keepMemRspData, exclusiveOk)
   }
+}
+
+case class DataCacheFlush(lineCount : Int) extends Bundle{
+  val singleLine = Bool()
+  val lineId = UInt(log2Up(lineCount) bits)
 }
 
 case class DataCacheCpuBus(p : DataCacheConfig, mmu : MemoryTranslatorBusParameter) extends Bundle with IMasterSlave{
@@ -198,14 +205,16 @@ case class DataCacheCpuBus(p : DataCacheConfig, mmu : MemoryTranslatorBusParamet
   val writeBack = DataCacheCpuWriteBack(p)
 
   val redo = Bool()
-  val flush = Event
+  val flush = Stream(DataCacheFlush(p.lineCount))
+
+  val writesPending = Bool()
 
   override def asMaster(): Unit = {
     master(execute)
     master(memory)
     master(writeBack)
     master(flush)
-    in(redo)
+    in(redo, writesPending)
   }
 }
 
@@ -710,6 +719,8 @@ class DataCache(val p : DataCacheConfig, mmuParameter : MemoryTranslatorBusParam
       }
       val uncached = history.readAsync(rPtr.resized)
       val full = RegNext(wPtr - rPtr >= pendingMax-1)
+      val empty = wPtr === rPtr
+      io.cpu.writesPending := !empty
       io.cpu.execute.haltIt setWhen(full)
     }
 
@@ -848,6 +859,9 @@ class DataCache(val p : DataCacheConfig, mmuParameter : MemoryTranslatorBusParam
         io.cpu.execute.haltIt := True
         when(!hold) {
           counter := counter + 1
+          when(io.cpu.flush.valid && io.cpu.flush.singleLine){
+            counter.msb := True
+          }
         }
       }
 
@@ -859,13 +873,17 @@ class DataCache(val p : DataCacheConfig, mmuParameter : MemoryTranslatorBusParam
       when(start){
         waitDone := True
         counter := 0
+        when(io.cpu.flush.valid && io.cpu.flush.singleLine){
+          counter := U"0" @@ io.cpu.flush.lineId
+        }
       }
     }
 
     val lrSc = withInternalLrSc generate new Area{
       val reserved = RegInit(False)
-      when(io.cpu.writeBack.isValid && !io.cpu.writeBack.isStuck && request.isLrsc){
-        reserved := !request.wr
+      when(io.cpu.writeBack.isValid && io.cpu.writeBack.isFiring){
+        reserved setWhen(request.isLrsc)
+        reserved clearWhen(request.wr)
       }
     }
 
@@ -1049,16 +1067,18 @@ class DataCache(val p : DataCacheConfig, mmuParameter : MemoryTranslatorBusParam
     }
 
     //remove side effects on exceptions
-    when(consistancyHazard || mmuRsp.refilling || io.cpu.writeBack.accessError || io.cpu.writeBack.mmuException || io.cpu.writeBack.unalignedAccess){
-      io.mem.cmd.valid := False
-      tagsWriteCmd.valid := False
-      dataWriteCmd.valid := False
-      loaderValid := False
-      io.cpu.writeBack.haltIt := False
-      if(withInternalLrSc) lrSc.reserved := lrSc.reserved
-      if(withExternalAmo) amo.external.state := LR_CMD
+    when(io.cpu.writeBack.isValid) {
+      when(consistancyHazard || mmuRsp.refilling || io.cpu.writeBack.accessError || io.cpu.writeBack.mmuException || io.cpu.writeBack.unalignedAccess) {
+        io.mem.cmd.valid := False
+        tagsWriteCmd.valid := False
+        dataWriteCmd.valid := False
+        loaderValid := False
+        io.cpu.writeBack.haltIt := False
+        if (withInternalLrSc) lrSc.reserved := lrSc.reserved
+        if (withExternalAmo) amo.external.state := LR_CMD
+      }
+      io.cpu.redo setWhen((mmuRsp.refilling || consistancyHazard))
     }
-    io.cpu.redo setWhen(io.cpu.writeBack.isValid && (mmuRsp.refilling || consistancyHazard))
 
     assert(!(io.cpu.writeBack.isValid && !io.cpu.writeBack.haltIt && io.cpu.writeBack.isStuck), "writeBack stuck by another plugin is not allowed", ERROR)
   }

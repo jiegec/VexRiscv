@@ -554,7 +554,7 @@ class CsrDimension(freertos : String, zephyr : String, linux : String) extends V
     if(supervisor){
       new VexRiscvPosition("Supervisor") with CatchAllPosition{
         override def applyOn(config: VexRiscvConfig): Unit = config.plugins += new CsrPlugin(CsrPluginConfig.linuxFull(0x80000020l))
-        override def testParam = s"FREERTOS=$freertos ZEPHYR=$zephyr LINUX_REGRESSION=$linux SUPERVISOR=yes"
+        override def testParam = s"FREERTOS=$freertos ZEPHYR=$zephyr LINUX_REGRESSION=$linux SUPERVISOR=yes CSR=yes"
       }
     } else if(pmp){
       new VexRiscvPosition("Secure") with CatchAllPosition{
@@ -770,7 +770,7 @@ class TestIndividualFeatures extends MultithreadedFunSuite(sys.env.getOrElse("VE
       }
 
       //Setup test
-      val files = List("main.cpp", "encoding.h" ,"makefile", "dhrystoneO3.logRef", "dhrystoneO3C.logRef","dhrystoneO3MC.logRef","dhrystoneO3M.logRef")
+      val files = List("main.cpp", "jtag.h", "encoding.h" ,"makefile", "dhrystoneO3.logRef", "dhrystoneO3C.logRef","dhrystoneO3MC.logRef","dhrystoneO3M.logRef")
       files.foreach(f => FileUtils.copyFileToDirectory(new File(s"src/test/cpp/regression/$f"), new File(project)))
 
       //Test RTL
